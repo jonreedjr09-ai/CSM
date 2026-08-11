@@ -1,11 +1,13 @@
-// Google Apps Script — bind this to the "CSM NWA Master Sheet" spreadsheet
+// Google Apps Script — bind this to the "Job Audit Sheet" spreadsheet
 // (Extensions > Apps Script from that Sheet, paste this in as Code.gs).
 //
 // What it does, every time updateBonusPoolChart() runs:
-//   1. Reads the "Bonus Pool" row(s) out of the messy TECH Bonus tab.
-//   2. Writes a clean Month | Bonus Pool table to a "Bonus Pool Chart Data" tab.
-//   3. Creates a column chart from that clean table (once), or resizes its
-//      data range to match as new months are added.
+//   1. Reads the Month | Total Revenue | Potential | Current summary table
+//      (the one with rows like "August | | $1,613.09 | $1,436.08").
+//   2. Writes a clean Month | Potential | Actual table to a
+//      "Bonus Pool Chart Data" tab.
+//   3. Creates a two-series column chart from that clean table (once), or
+//      resizes its data range to match as new months get filled in.
 //   4. Inserts that chart into the target Slide (once), or calls .refresh()
 //      on it so the Slide always shows the latest numbers — no manual
 //      "Update" click needed.
@@ -16,16 +18,15 @@
 //   2. installWeeklyTrigger   — schedules updateBonusPoolChart to run every Friday morning.
 // After that it's fully automatic.
 
-const SHEET_ID = '1MoxQ2iP3ky_yvp63Ot84M_Fh4ofJsnsb5Lmutkz8Igo'; // CSM NWA Master Sheet
+const SHEET_ID = '1wZgv2fty0WkC0QBhgX8jHcqWnmYPxDmSnPNP4NrrCUo'; // Job Audit Sheet
 const SLIDE_ID = '1x_WK1lbaxCNWx8A4sPkQcq7kapbnl5Uq0v2439VE_S4';  // Crawlspace Medic — Monthly Bonus Pool
-const TECH_BONUS_SHEET_NAME = 'TECH Bonus';
 const CHART_DATA_SHEET_NAME = 'Bonus Pool Chart Data';
 
 function updateBonusPoolChart() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const history = readBonusPoolHistory(ss);
   if (history.length === 0) {
-    throw new Error(`No "Bonus Pool" row found on the "${TECH_BONUS_SHEET_NAME}" tab.`);
+    throw new Error('Could not find the Month / Total Revenue / Potential / Current summary table.');
   }
 
   const dataSheet = writeChartData(ss, history);
@@ -36,32 +37,51 @@ function updateBonusPoolChart() {
 }
 
 function readBonusPoolHistory(ss) {
-  const sheet = ss.getSheetByName(TECH_BONUS_SHEET_NAME);
-  if (!sheet) throw new Error(`Tab "${TECH_BONUS_SHEET_NAME}" not found.`);
-
-  const values = sheet.getDataRange().getValues();
+  // Scans every sheet/tab for the "Total Revenue" header, since that block
+  // sits a few columns to the right of the per-job table, not at A1.
   let headerRow = -1;
-  let bonusPoolCol = -1;
-  for (let r = 0; r < values.length; r++) {
-    const col = values[r].indexOf('Bonus Pool');
-    if (col !== -1) {
-      headerRow = r;
-      bonusPoolCol = col;
-      break;
+  let revenueCol = -1;
+  let values = null;
+
+  for (const sheet of ss.getSheets()) {
+    const data = sheet.getDataRange().getValues();
+    for (let r = 0; r < data.length; r++) {
+      const col = data[r].indexOf('Total Revenue');
+      if (col !== -1) {
+        headerRow = r;
+        revenueCol = col;
+        values = data;
+        break;
+      }
     }
+    if (values) break;
   }
-  if (headerRow === -1) return [];
+  if (!values) return [];
+
+  const monthCol = revenueCol - 1;
+  const potentialCol = revenueCol + 1;
+  const currentCol = revenueCol + 2;
 
   const history = [];
   for (let r = headerRow + 1; r < values.length; r++) {
-    const month = values[r][0];
-    const rawAmount = values[r][bonusPoolCol];
-    if (!month || rawAmount === '' || rawAmount == null) break; // stop at the first blank row
-    const amount = Number(String(rawAmount).replace(/[^0-9.-]/g, ''));
-    if (Number.isNaN(amount)) break;
-    history.push({ month: String(month).trim(), amount });
+    const month = values[r][monthCol];
+    const rawPotential = values[r][potentialCol];
+    const rawCurrent = values[r][currentCol];
+    if (!month) break;
+    if (rawPotential === '' && rawCurrent === '') break; // future months with no data yet
+    history.push({
+      month: String(month).trim(),
+      potential: toNumber(rawPotential),
+      current: toNumber(rawCurrent),
+    });
   }
   return history;
+}
+
+function toNumber(raw) {
+  if (raw === '' || raw == null) return 0;
+  const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
+  return Number.isNaN(n) ? 0 : n;
 }
 
 function writeChartData(ss, history) {
@@ -70,13 +90,16 @@ function writeChartData(ss, history) {
     dataSheet = ss.insertSheet(CHART_DATA_SHEET_NAME);
   }
   dataSheet.getDataRange().clearContent();
-  const rows = [['Month', 'Bonus Pool'], ...history.map((h) => [h.month, h.amount])];
-  dataSheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  const rows = [
+    ['Month', 'Potential Pool', 'Actual Pool'],
+    ...history.map((h) => [h.month, h.potential, h.current]),
+  ];
+  dataSheet.getRange(1, 1, rows.length, 3).setValues(rows);
   return dataSheet;
 }
 
 function getOrCreateChart(dataSheet, monthCount) {
-  const range = dataSheet.getRange(1, 1, monthCount + 1, 2);
+  const range = dataSheet.getRange(1, 1, monthCount + 1, 3);
   const existing = dataSheet.getCharts();
   if (existing.length > 0) {
     const updated = existing[0].modify().clearRanges().addRange(range).build();
@@ -88,8 +111,8 @@ function getOrCreateChart(dataSheet, monthCount) {
     .asColumnChart()
     .addRange(range)
     .setNumHeaders(1)
-    .setTitle('Monthly Bonus Pool')
-    .setPosition(2, 4, 0, 0)
+    .setTitle('Monthly Bonus Pool — Potential vs. Actual')
+    .setPosition(2, 5, 0, 0)
     .build();
   dataSheet.insertChart(chart);
   return chart;

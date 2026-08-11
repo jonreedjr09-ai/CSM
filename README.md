@@ -105,29 +105,35 @@ Set the `MESSAGE_TEMPLATE` env var (or secret) to change the text. Supports
 ## Part B: Live chart in Google Slides (via Apps Script)
 
 This reads directly from your real spreadsheet — the
-[CSM NWA Master Sheet](https://docs.google.com/spreadsheets/d/1MoxQ2iP3ky_yvp63Ot84M_Fh4ofJsnsb5Lmutkz8Igo/edit),
-`TECH Bonus` tab, `Bonus Pool` row — so there's nothing to reformat by hand.
-It keeps a chart current inside an already-created deck,
+[Job Audit Sheet](https://docs.google.com/spreadsheets/d/1wZgv2fty0WkC0QBhgX8jHcqWnmYPxDmSnPNP4NrrCUo/edit),
+the `Month | Total Revenue | Potential | Current` summary table (the one
+with rows like `August | | $1,613.09 | $1,436.08`) — so there's nothing to
+reformat by hand. It keeps a chart current inside an already-created deck,
 [Crawlspace Medic — Monthly Bonus Pool](https://docs.google.com/presentation/d/1x_WK1lbaxCNWx8A4sPkQcq7kapbnl5Uq0v2439VE_S4/edit).
+
+> **Note:** an earlier version of this pointed at the `CSM NWA Master
+> Sheet` / `TECH Bonus` tab instead. That sheet stopped being updated in
+> July — the *Job Audit Sheet* is the one actually getting new months
+> (like August) added to it, so that's what the script now targets.
 
 The code lives at [`scripts/BonusPoolChart.gs`](scripts/BonusPoolChart.gs) —
 GitHub can't run it for you (Apps Script only runs inside Google's
 infrastructure under your own account), so it needs a one-time manual step:
 
-1. Open the [CSM NWA Master Sheet](https://docs.google.com/spreadsheets/d/1MoxQ2iP3ky_yvp63Ot84M_Fh4ofJsnsb5Lmutkz8Igo/edit) → **Extensions → Apps Script**.
+1. Open the [Job Audit Sheet](https://docs.google.com/spreadsheets/d/1wZgv2fty0WkC0QBhgX8jHcqWnmYPxDmSnPNP4NrrCUo/edit) → **Extensions → Apps Script**.
 2. Delete any placeholder code and paste in the contents of `scripts/BonusPoolChart.gs`.
 3. From the function dropdown at the top, select **`updateBonusPoolChart`** and click **Run** (▶). The first run will prompt you to authorize the script — this is Google requiring a human to grant permission; approve it (it only needs access to this Sheet and the one target Slide deck).
-4. Check the [Slides deck](https://docs.google.com/presentation/d/1x_WK1lbaxCNWx8A4sPkQcq7kapbnl5Uq0v2439VE_S4/edit) — it should now have a bar chart of the bonus pool by month.
-5. Select **`installWeeklyTrigger`** from the function dropdown and click **Run** once. This schedules `updateBonusPoolChart` to run automatically every Friday at 9am (your Google account's timezone) — after this, the chart stays current with zero manual clicks, even as new months get added to the `TECH Bonus` tab.
+   - **If you already ran the old version of this script**, run it again after pasting the updated code — it was pointed at the wrong spreadsheet before, which is why August wasn't showing up.
+4. Check the [Slides deck](https://docs.google.com/presentation/d/1x_WK1lbaxCNWx8A4sPkQcq7kapbnl5Uq0v2439VE_S4/edit) — it should now have a bar chart with a "Potential Pool" and "Actual Pool" bar for each month.
+5. Select **`installWeeklyTrigger`** from the function dropdown and click **Run** once. This schedules `updateBonusPoolChart` to run automatically every Friday at 9am (your Google account's timezone) — after this, the chart stays current with zero manual clicks, even as new months get filled in.
 
 ### How it finds the data
 
 Every run, the script:
-- Scans the `TECH Bonus` tab for the row containing the header `Bonus Pool`, then reads every month row below it (stopping at the first blank row) — this is where `MAY | $930 | 38.5 | ...` currently lives.
-- Rewrites a clean `Month | Bonus Pool` table into a `Bonus Pool Chart Data` tab (created automatically) so the chart has something tidy to plot.
-- Creates the chart the first time, or resizes its data range on later runs as new months get appended.
+- Scans the spreadsheet for the header `Total Revenue`, then reads the `Month`, `Potential`, and `Current` columns next to it — stopping at the first month with no data yet (e.g. September, which is still blank).
+- Rewrites a clean `Month | Potential Pool | Actual Pool` table into a `Bonus Pool Chart Data` tab (created automatically) so the chart has something tidy to plot.
+- Creates the chart the first time, or resizes its data range on later runs as new months get filled in.
 - Inserts the chart into the Slide the first time, or calls `.refresh()` on it thereafter so the Slide always reflects the latest numbers.
 
-If you'd rather chart a different number (e.g. the crew reminder doc's
-projected figures instead of the `TECH Bonus` tab), tell me and I'll point
-the script at that source instead.
+If you'd rather chart just the actual pool (drop the "Potential" bar), or a
+different number entirely, tell me and I'll adjust the script.
